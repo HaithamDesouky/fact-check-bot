@@ -1,25 +1,25 @@
-import { useEffect, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
-import { useStore } from '../lib/store';
-import { factCheck } from '../lib/openai';
-import FactCheckCard from '../components/FactCheckCard';
-import type { FactCheckResult } from '../types';
+import { useEffect, useRef, useState } from "react";
+import { Link } from "react-router-dom";
+import { useStore } from "../lib/store";
+import { factCheck } from "../lib/openai";
+import FactCheckCard from "../components/FactCheckCard";
+import type { FactCheckResult } from "../types";
 
 const MAX_CHARS = 8000;
-const MAX_WORDS_KEY = 'factcheck.maxWords';
-const DEFAULT_MAX_WORDS = '150';
-const LANGUAGE_KEY = 'factcheck.language';
+const MAX_WORDS_KEY = "factcheck.maxWords";
+const DEFAULT_MAX_WORDS = "100";
+const LANGUAGE_KEY = "factcheck.language";
 /** value '' = respond in the same language as the pasted text. */
 const LANGUAGES = [
-  { value: '', label: 'Same as text' },
-  { value: 'English', label: 'English' },
-  { value: 'Spanish', label: 'Español' },
-  { value: 'French', label: 'Français' },
-  { value: 'German', label: 'Deutsch' },
-  { value: 'Portuguese', label: 'Português' },
-  { value: 'Italian', label: 'Italiano' },
-  { value: 'Catalan', label: 'Català' },
-  { value: 'Arabic', label: 'العربية' },
+  { value: "", label: "Same as text" },
+  { value: "English", label: "English" },
+  { value: "Spanish", label: "Español" },
+  { value: "French", label: "Français" },
+  { value: "German", label: "Deutsch" },
+  { value: "Portuguese", label: "Português" },
+  { value: "Italian", label: "Italiano" },
+  { value: "Catalan", label: "Català" },
+  { value: "Arabic", label: "العربية" },
 ];
 const MIN_WORDS = 20;
 const MAX_WORDS = 2000;
@@ -33,18 +33,20 @@ function parseMaxWords(value: string): number {
 
 export default function CheckPage() {
   const { settings, addHistory } = useStore();
-  const [text, setText] = useState('');
+  const [text, setText] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<FactCheckResult | null>(null);
-  const [maxWords, setMaxWords] = useState(() => localStorage.getItem(MAX_WORDS_KEY) ?? DEFAULT_MAX_WORDS);
+  const [maxWords, setMaxWords] = useState(
+    () => localStorage.getItem(MAX_WORDS_KEY) ?? DEFAULT_MAX_WORDS,
+  );
   const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => () => abortRef.current?.abort(), []);
   useEffect(() => localStorage.setItem(MAX_WORDS_KEY, maxWords), [maxWords]);
   const [language, setLanguage] = useState(() => {
-    const saved = localStorage.getItem(LANGUAGE_KEY) ?? '';
-    return LANGUAGES.some((l) => l.value === saved) ? saved : '';
+    const saved = localStorage.getItem(LANGUAGE_KEY) ?? "";
+    return LANGUAGES.some((l) => l.value === saved) ? saved : "";
   });
   useEffect(() => localStorage.setItem(LANGUAGE_KEY, language), [language]);
 
@@ -55,12 +57,16 @@ export default function CheckPage() {
     const ctrl = new AbortController();
     abortRef.current = ctrl;
     const words = parseMaxWords(maxWords);
-    setMaxWords(words ? String(words) : '');
+    setMaxWords(words ? String(words) : "");
     setLoading(true);
     setError(null);
     setResult(null);
     try {
-      const r = await factCheck(input, settings, { maxWords: words, language, signal: ctrl.signal });
+      const r = await factCheck(input, settings, {
+        maxWords: words,
+        language,
+        signal: ctrl.signal,
+      });
       setResult(r);
       addHistory({
         id: crypto.randomUUID(),
@@ -70,7 +76,7 @@ export default function CheckPage() {
         result: r,
       });
     } catch (e) {
-      if ((e as Error).name !== 'AbortError') setError((e as Error).message);
+      if ((e as Error).name !== "AbortError") setError((e as Error).message);
     } finally {
       if (abortRef.current === ctrl) {
         setLoading(false);
@@ -89,7 +95,7 @@ export default function CheckPage() {
     try {
       setText((await navigator.clipboard.readText()).slice(0, MAX_CHARS));
     } catch {
-      setError('Clipboard access was blocked — paste with Ctrl/Cmd+V instead.');
+      setError("Clipboard access was blocked — paste with Ctrl/Cmd+V instead.");
     }
   };
 
@@ -97,12 +103,16 @@ export default function CheckPage() {
     <div className="page">
       <header className="page-header">
         <h1>Fact check a claim</h1>
-        <p className="muted">Paste a comment, post or article excerpt and the bot will check its claims against sources.</p>
+        <p className="muted">
+          Paste a comment, post or article excerpt and the bot will check its
+          claims against sources.
+        </p>
       </header>
 
       {!settings.apiKey && (
         <div className="alert alert-warn">
-          No OpenAI API key configured. <Link to="/settings">Add one in Settings</Link> to start checking.
+          No OpenAI API key configured.{" "}
+          <Link to="/settings">Add one in Settings</Link> to start checking.
         </div>
       )}
 
@@ -111,7 +121,7 @@ export default function CheckPage() {
           value={text}
           onChange={(e) => setText(e.target.value.slice(0, MAX_CHARS))}
           onKeyDown={(e) => {
-            if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) run();
+            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) run();
           }}
           placeholder="e.g. “Pedro Sánchez paid drug dealers to kill a judge and tried to rig elections.”"
           rows={7}
@@ -119,9 +129,16 @@ export default function CheckPage() {
         />
         <div className="input-actions">
           <div className="input-meta">
-            <label className="inline-field" title="Language the fact check is written in">
+            <label
+              className="inline-field"
+              title="Language the fact check is written in"
+            >
               <span>Language</span>
-              <select value={language} onChange={(e) => setLanguage(e.target.value)} disabled={loading}>
+              <select
+                value={language}
+                onChange={(e) => setLanguage(e.target.value)}
+                disabled={loading}
+              >
                 {LANGUAGES.map((l) => (
                   <option key={l.value} value={l.value}>
                     {l.label}
@@ -129,7 +146,10 @@ export default function CheckPage() {
                 ))}
               </select>
             </label>
-            <label className="inline-field" title={`Limit the fact-check response length (${MIN_WORDS}–${MAX_WORDS} words). Leave empty for no limit.`}>
+            <label
+              className="inline-field"
+              title={`Limit the fact-check response length (${MIN_WORDS}–${MAX_WORDS} words). Leave empty for no limit.`}
+            >
               <span>Max words</span>
               <input
                 type="number"
@@ -151,7 +171,15 @@ export default function CheckPage() {
             <button className="btn" onClick={paste} disabled={loading}>
               Paste
             </button>
-            <button className="btn" onClick={() => { setText(''); setResult(null); setError(null); }} disabled={loading || !text}>
+            <button
+              className="btn"
+              onClick={() => {
+                setText("");
+                setResult(null);
+                setError(null);
+              }}
+              disabled={loading || !text}
+            >
               Clear
             </button>
             {loading ? (
@@ -159,7 +187,11 @@ export default function CheckPage() {
                 Cancel
               </button>
             ) : (
-              <button className="btn btn-primary" onClick={run} disabled={!text.trim() || !settings.apiKey}>
+              <button
+                className="btn btn-primary"
+                onClick={run}
+                disabled={!text.trim() || !settings.apiKey}
+              >
                 Fact check
               </button>
             )}
@@ -170,7 +202,11 @@ export default function CheckPage() {
       {loading && (
         <div className="card loading">
           <div className="spinner" />
-          <span>{settings.webSearch ? 'Searching the web and checking claims…' : 'Checking claims…'}</span>
+          <span>
+            {settings.webSearch
+              ? "Searching the web and checking claims…"
+              : "Checking claims…"}
+          </span>
         </div>
       )}
 
@@ -180,3 +216,4 @@ export default function CheckPage() {
     </div>
   );
 }
+

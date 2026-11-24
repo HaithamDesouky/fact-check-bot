@@ -1,9 +1,11 @@
 import { useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
+import { useAuth } from '../lib/auth';
 
 export default function ResetPasswordPage() {
   const navigate = useNavigate();
+  const { finishRecovery } = useAuth();
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -15,6 +17,7 @@ export default function ResetPasswordPage() {
     const { error } = await supabase.auth.updateUser({ password });
     setBusy(false);
     if (error) return setError(error.message);
+    finishRecovery();
     navigate('/', { replace: true });
   };
 

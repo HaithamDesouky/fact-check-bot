@@ -3,7 +3,7 @@ import { useAuth } from '../lib/auth';
 import MfaChallengePage from '../pages/MfaChallengePage';
 
 export default function RequireAuth() {
-  const { status } = useAuth();
+  const { status, recovering } = useAuth();
   const location = useLocation();
 
   if (status === 'loading') {
@@ -17,5 +17,6 @@ export default function RequireAuth() {
   }
   if (status === 'signed-out') return <Navigate to="/login" replace state={{ from: location.pathname }} />;
   if (status === 'needs-mfa') return <MfaChallengePage />;
+  if (recovering && location.pathname !== '/reset-password') return <Navigate to="/reset-password" replace />;
   return <Outlet />;
 }

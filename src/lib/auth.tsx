@@ -1,12 +1,14 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
 import type { Session } from '@supabase/supabase-js';
-import { supabase } from './supabase';
+import { openedFromRecoveryLink, supabase } from './supabase';
 
 export type AuthStatus = 'loading' | 'signed-out' | 'needs-mfa' | 'signed-in';
 
 interface AuthContextValue {
   status: AuthStatus;
   session: Session | null;
+  recovering: boolean;
+  finishRecovery: () => void;
   refresh: () => Promise<void>;
   signOut: () => Promise<void>;
 }
@@ -23,6 +25,8 @@ async function resolveStatus(session: Session | null): Promise<AuthStatus> {
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [status, setStatus] = useState<AuthStatus>('loading');
+  const [recovering, setRecovering] = useState(openedFromRecoveryLink);
+  const finishRecovery = useCallback(() => setRecovering(false), []);
 
   const apply = useCallback(async (s: Session | null) => {
     setSession(s);
@@ -31,7 +35,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => apply(data.session));
-    const { data } = supabase.auth.onAuthStateChange((_event, s) => {
+    const { data } = supabase.auth.onAuthStateChange((event, s) => {
+      if (event === 'PASSWORD_RECOVERY') setRecovering(true);
+      if (event === 'SIGNED_OUT') setRecovering(false);
       setTimeout(() => apply(s), 0);
     });
     return () => data.subscription.unsubscribe();
@@ -46,7 +52,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await supabase.auth.signOut();
   }, []);
 
-  return <AuthContext.Provider value={{ status, session, refresh, signOut }}>{children}</AuthContext.Provider>;
+  return (
+    <AuthContext.Provider value={{ status, session, recovering, finishRecovery, refresh, signOut }}>
+      {children}
+    </AuthContext.Provider>
+  );
 }
 
 export function useAuth() {

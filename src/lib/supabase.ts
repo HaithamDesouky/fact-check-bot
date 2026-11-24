@@ -9,4 +9,6 @@ if (!url || !anonKey) {
   );
 }
 
+export const openedFromRecoveryLink = /[#&?]type=recovery\b/.test(window.location.hash + window.location.search);
+
 export const supabase = createClient(url, anonKey);

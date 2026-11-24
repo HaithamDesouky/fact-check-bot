@@ -1,4 +1,5 @@
 import type { FactCheckResult, Settings, Source } from '../types';
+import { parsePartialJson } from './partialJson';
 
 const ENDPOINT = 'https://api.openai.com/v1/responses';
 
@@ -63,7 +64,7 @@ const SCHEMA = {
   },
 } as const;
 
-function instructions(webSearch: boolean, maxWords: number, language: string): string {
+function instructions(webSearch: boolean, maxWords: number, language: string, maxSources: number): string {
   const today = new Date().toISOString().slice(0, 10);
   const lengthRule =
     maxWords > 0
@@ -76,6 +77,7 @@ function instructions(webSearch: boolean, maxWords: number, language: string): s
     webSearch
       ? 'Use web search to find reputable, current sources (fact-checkers, major news outlets, official records). Only cite URLs you actually found.'
       : 'You do not have web access. Only cite sources you are highly confident exist with accurate URLs; if unsure, cite fewer sources and say evidence could not be verified.',
+    `Cite AT MOST ${maxSources} source${maxSources === 1 ? '' : 's'} in total. Prefer the most authoritative ones.`,
     'Distinguish between "false", "unproven/unsupported", and "misleading" carefully. Do not overstate certainty.',
     'If the text contains opinions rather than factual claims, say so and use the verdict "Unverifiable".',
     'truthPercentage is your estimate of how much of the text is factually accurate (0 = entirely false, 100 = entirely accurate).',
@@ -88,39 +90,98 @@ function instructions(webSearch: boolean, maxWords: number, language: string): s
     .join('\n');
 }
 
+interface Annotation {
+  type: string;
+  url?: string;
+  title?: string;
+}
+
 interface ResponsesOutputItem {
   type: string;
-  content?: { type: string; text?: string; annotations?: { type: string; url?: string; title?: string }[] }[];
+  content?: { type: string; text?: string; annotations?: Annotation[] }[];
+}
+
+interface StreamEvent {
+  type: string;
+  delta?: string;
+  message?: string;
+  response?: { output?: ResponsesOutputItem[]; error?: { message?: string }; incomplete_details?: { reason?: string } };
 }
 
 export class OpenAIError extends Error {}
 
+export type FactCheckStatus = 'searching' | 'writing';
+
 export interface FactCheckOptions {
-  /** Target max words for the visible fact-check text. 0 = no limit. */
   maxWords?: number;
-  /** Language name to respond in, e.g. "Spanish". Empty = match the input text. */
   language?: string;
   signal?: AbortSignal;
+  onPartial?: (partial: FactCheckResult) => void;
+  onStatus?: (status: FactCheckStatus) => void;
+}
+
+function fillPartial(raw: Partial<FactCheckResult> | null): FactCheckResult {
+  const r = raw ?? {};
+  return {
+    claim: typeof r.claim === 'string' ? r.claim : '',
+    overallVerdict: typeof r.overallVerdict === 'string' ? r.overallVerdict : '',
+    points: (Array.isArray(r.points) ? r.points : []).map((p) => ({
+      statement: p?.statement ?? '',
+      verdict: p?.verdict ?? '',
+      explanation: p?.explanation ?? '',
+      sourceIds: Array.isArray(p?.sourceIds) ? p.sourceIds : [],
+    })),
+    truthPercentage: 'rationale' in r && typeof r.truthPercentage === 'number' ? r.truthPercentage : NaN,
+    rationale: typeof r.rationale === 'string' ? r.rationale : '',
+    sources: (Array.isArray(r.sources) ? r.sources : []).filter((s) => s && typeof s.id === 'number' && s.url),
+  };
+}
+
+async function* readEvents(res: Response): AsyncGenerator<StreamEvent> {
+  const reader = res.body!.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  for (;;) {
+    const { value, done } = await reader.read();
+    buffer += decoder.decode(value, { stream: !done });
+    const chunks = buffer.split(/\r?\n\r?\n/);
+    buffer = done ? '' : chunks.pop()!;
+    for (const chunk of chunks) {
+      const data = chunk
+        .split(/\r?\n/)
+        .filter((l) => l.startsWith('data:'))
+        .map((l) => l.slice(5).trimStart())
+        .join('\n');
+      if (!data || data === '[DONE]') continue;
+      try {
+        yield JSON.parse(data) as StreamEvent;
+      } catch {
+      }
+    }
+    if (done) return;
+  }
 }
 
 export async function factCheck(
   text: string,
   settings: Settings,
-  { maxWords = 0, language = '', signal }: FactCheckOptions = {},
+  { maxWords = 0, language = '', signal, onPartial, onStatus }: FactCheckOptions = {},
 ): Promise<FactCheckResult> {
   if (!settings.apiKey) throw new OpenAIError('No OpenAI API key set. Add one in Settings.');
+  const maxSources = settings.maxSources ?? 3;
 
   const body: Record<string, unknown> = {
     model: settings.model,
-    instructions: instructions(settings.webSearch, maxWords, language),
+    instructions: instructions(settings.webSearch, maxWords, language, maxSources),
     input: text,
+    stream: true,
     text: {
       format: { type: 'json_schema', name: 'fact_check', strict: true, schema: SCHEMA },
     },
   };
-  // search_context_size controls how much page content each search adds to the prompt ("low" = fewest tokens).
   if (settings.webSearch) {
     body.tools = [{ type: 'web_search', search_context_size: settings.searchDepth ?? 'low' }];
+    body.max_tool_calls = maxSources;
   }
 
   let res: Response;
@@ -139,29 +200,62 @@ export async function factCheck(
     throw new OpenAIError('Network error contacting OpenAI. Check your connection.');
   }
 
-  const data = await res.json().catch(() => null);
-  if (!res.ok) {
-    const msg = data?.error?.message ?? `Request failed with status ${res.status}`;
-    throw new OpenAIError(msg);
+  if (!res.ok || !res.body) {
+    const data = await res.json().catch(() => null);
+    throw new OpenAIError(data?.error?.message ?? `Request failed with status ${res.status}`);
   }
 
-  const output: ResponsesOutputItem[] = data?.output ?? [];
-  const message = output.find((o) => o.type === 'message');
+  let streamed = '';
+  let refused = false;
+  let final: StreamEvent['response'];
+  try {
+    for await (const ev of readEvents(res)) {
+      switch (ev.type) {
+        case 'response.web_search_call.in_progress':
+        case 'response.web_search_call.searching':
+          onStatus?.('searching');
+          break;
+        case 'response.output_text.delta':
+          if (!streamed) onStatus?.('writing');
+          streamed += ev.delta ?? '';
+          onPartial?.(fillPartial(parsePartialJson<Partial<FactCheckResult>>(streamed)));
+          break;
+        case 'response.refusal.delta':
+          refused = true;
+          break;
+        case 'response.completed':
+        case 'response.incomplete':
+          final = ev.response;
+          break;
+        case 'response.failed':
+          throw new OpenAIError(ev.response?.error?.message ?? 'The request failed.');
+        case 'error':
+          throw new OpenAIError(ev.message ?? 'The request failed.');
+      }
+    }
+  } catch (e) {
+    if (e instanceof OpenAIError || (e as Error).name === 'AbortError') throw e;
+    throw new OpenAIError('Connection to OpenAI was interrupted. Please try again.');
+  }
+
+  const message = final?.output?.find((o) => o.type === 'message');
   const part = message?.content?.find((c) => c.type === 'output_text');
-  if (!part?.text) {
-    const refusal = message?.content?.find((c) => c.type === 'refusal');
-    throw new OpenAIError(refusal ? 'The model refused to fact-check this text.' : 'Empty response from model.');
+  const finalText = part?.text ?? streamed;
+  if (!finalText) {
+    throw new OpenAIError(refused ? 'The model refused to fact-check this text.' : 'Empty response from model.');
   }
 
   let result: FactCheckResult;
   try {
-    result = JSON.parse(part.text);
+    result = JSON.parse(finalText);
   } catch {
-    throw new OpenAIError('Could not parse the model response.');
+    const reason = final?.incomplete_details?.reason;
+    throw new OpenAIError(
+      reason ? `The response was cut off (${reason}). Try a lower word limit.` : 'Could not parse the model response.',
+    );
   }
 
-  // Fall back to web-search citations if the model returned no sources itself.
-  if (result.sources.length === 0 && part.annotations?.length) {
+  if (result.sources.length === 0 && part?.annotations?.length) {
     const seen = new Set<string>();
     result.sources = part.annotations
       .filter((a) => a.type === 'url_citation' && a.url && !seen.has(a.url) && seen.add(a.url))
@@ -174,6 +268,7 @@ export async function factCheck(
       }));
   }
 
+  result.sources = result.sources.slice(0, maxSources);
   result.truthPercentage = Math.max(0, Math.min(100, Math.round(result.truthPercentage)));
   return result;
 }

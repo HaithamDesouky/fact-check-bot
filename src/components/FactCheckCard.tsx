@@ -5,10 +5,6 @@ import { HEADING_ICON, TONE_ICON, truthTone, verdictTone } from '../lib/tone';
 import { toRedditHtml, toRedditMarkdown } from '../lib/redditFormat';
 import SourceModal from './SourceModal';
 
-/**
- * Copies both rich HTML and plain markdown. Reddit's rich-text editor pastes the HTML
- * (bold, lists, links); its Markdown mode (a plain textarea) pastes the markdown.
- */
 async function copyRich(html: string, text: string): Promise<void> {
   try {
     if (typeof ClipboardItem !== 'undefined' && navigator.clipboard?.write) {
@@ -22,7 +18,6 @@ async function copyRich(html: string, text: string): Promise<void> {
       await navigator.clipboard.writeText(text);
     }
   } catch {
-    // Fallback for non-secure contexts (e.g. opened over plain http on a LAN IP).
     const ta = document.createElement('textarea');
     ta.value = text;
     ta.style.position = 'fixed';
@@ -60,7 +55,7 @@ const CheckIcon = () => (
   </svg>
 );
 
-export default function FactCheckCard({ result }: { result: FactCheckResult }) {
+export default function FactCheckCard({ result, streaming = false }: { result: FactCheckResult; streaming?: boolean }) {
   const [open, setOpen] = useState<Source | null>(null);
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'error'>('idle');
 
@@ -76,7 +71,8 @@ export default function FactCheckCard({ result }: { result: FactCheckResult }) {
       () => setCopyState('error'),
     );
   const byId = new Map(result.sources.map((s) => [s.id, s]));
-  const tone = truthTone(result.truthPercentage);
+  const hasTruth = Number.isFinite(result.truthPercentage);
+  const tone = hasTruth ? truthTone(result.truthPercentage) : 'mixed';
 
   const renderChips = (ids: number[]) => {
     const valid = ids.map((id) => byId.get(id)).filter((s): s is Source => !!s);
@@ -93,18 +89,22 @@ export default function FactCheckCard({ result }: { result: FactCheckResult }) {
   };
 
   return (
-    <article className={`card result tone-${tone}`}>
+    <article className={`card result tone-${tone}${streaming ? ' streaming' : ''}`} aria-busy={streaming}>
       <h2 className="result-header">
         {HEADING_ICON.titleLeft} Fact Check {HEADING_ICON.titleRight}
-        <span className={`pill tone-${verdictTone(result.overallVerdict)}`}>{result.overallVerdict}</span>
-        <button
-          className={`btn btn-sm btn-icon copy-btn ${copyState}`}
-          onClick={copyReddit}
-          title={copyState === 'copied' ? 'Copied!' : copyState === 'error' ? 'Copy failed' : 'Copy for Reddit'}
-          aria-label="Copy for Reddit"
-        >
-          {copyState === 'copied' ? <CheckIcon /> : <CopyIcon />}
-        </button>
+        {result.overallVerdict && (
+          <span className={`pill tone-${verdictTone(result.overallVerdict)}`}>{result.overallVerdict}</span>
+        )}
+        {!streaming && (
+          <button
+            className={`btn btn-sm btn-icon copy-btn ${copyState}`}
+            onClick={copyReddit}
+            title={copyState === 'copied' ? 'Copied!' : copyState === 'error' ? 'Copy failed' : 'Copy for Reddit'}
+            aria-label="Copy for Reddit"
+          >
+            {copyState === 'copied' ? <CheckIcon /> : <CopyIcon />}
+          </button>
+        )}
       </h2>
 
       <p className="claim">
@@ -118,23 +118,26 @@ export default function FactCheckCard({ result }: { result: FactCheckResult }) {
               {TONE_ICON[verdictTone(p.verdict)]}
             </span>
             <strong>“{p.statement}”:</strong>{' '}
-            <strong className={`verdict tone-${verdictTone(p.verdict)}`}>{p.verdict}.</strong> {p.explanation}
+            {p.verdict && <strong className={`verdict tone-${verdictTone(p.verdict)}`}>{p.verdict}.</strong>}{' '}
+            {p.explanation}
             {renderChips(p.sourceIds)}
           </li>
         ))}
       </ul>
 
-      <div className="truth">
-        <div className="truth-label">
-          <strong>
-            {TONE_ICON[tone]} Truth percentage: {result.truthPercentage}%
-          </strong>
-          {result.rationale && <span> — {result.rationale}</span>}
+      {hasTruth && (
+        <div className="truth">
+          <div className="truth-label">
+            <strong>
+              {TONE_ICON[tone]} Truth percentage: {result.truthPercentage}%
+            </strong>
+            {result.rationale && <span> — {result.rationale}</span>}
+          </div>
+          <div className="meter" aria-hidden="true">
+            <div className={`meter-fill tone-${tone}`} style={{ width: `${result.truthPercentage}%` }} />
+          </div>
         </div>
-        <div className="meter" aria-hidden="true">
-          <div className={`meter-fill tone-${tone}`} style={{ width: `${result.truthPercentage}%` }} />
-        </div>
-      </div>
+      )}
 
       {result.sources.length > 0 && (
         <section className="sources">

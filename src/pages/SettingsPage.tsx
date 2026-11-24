@@ -1,8 +1,10 @@
 import { useState, type FormEvent } from 'react';
 import { DEFAULT_SETTINGS, useStore } from '../lib/store';
 import type { SearchDepth } from '../types';
+import TwoFactorSettings from '../components/TwoFactorSettings';
 
-const MODEL_SUGGESTIONS = ['gpt-4.1', 'gpt-4.1-mini', 'gpt-4o', 'gpt-4o-mini', 'gpt-5', 'gpt-5-mini'];
+const MODEL_SUGGESTIONS = ['gpt-4.1-mini', 'gpt-4.1', 'gpt-4o-mini', 'gpt-4o', 'gpt-5-mini', 'gpt-5'];
+const SOURCE_LIMITS = [1, 2, 3, 5, 8];
 const CUSTOM = '__custom__';
 
 const SEARCH_DEPTHS: { value: SearchDepth; label: string; hint: string }[] = [
@@ -18,6 +20,7 @@ export default function SettingsPage() {
   const [customModel, setCustomModel] = useState(!MODEL_SUGGESTIONS.includes(settings.model));
   const [webSearch, setWebSearch] = useState(settings.webSearch);
   const [searchDepth, setSearchDepth] = useState<SearchDepth>(settings.searchDepth);
+  const [maxSources, setMaxSources] = useState(settings.maxSources);
   const [showKey, setShowKey] = useState(false);
   const [saved, setSaved] = useState(false);
 
@@ -26,7 +29,7 @@ export default function SettingsPage() {
     const finalModel = model.trim() || DEFAULT_SETTINGS.model;
     setModel(finalModel);
     setCustomModel(!MODEL_SUGGESTIONS.includes(finalModel));
-    saveSettings({ apiKey: apiKey.trim(), model: finalModel, webSearch, searchDepth });
+    saveSettings({ apiKey: apiKey.trim(), model: finalModel, webSearch, searchDepth, maxSources });
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
@@ -128,6 +131,27 @@ export default function SettingsPage() {
           </span>
         </fieldset>
 
+        <fieldset className="field">
+          <legend className="field-label">Max sources</legend>
+          <div className="segmented" role="radiogroup">
+            {SOURCE_LIMITS.map((n) => (
+              <label key={n} className={maxSources === n ? 'active' : ''}>
+                <input
+                  type="radio"
+                  name="maxSources"
+                  value={n}
+                  checked={maxSources === n}
+                  onChange={() => setMaxSources(n)}
+                />
+                {n}
+              </label>
+            ))}
+          </div>
+          <span className="muted small">
+            Caps how many web searches the model runs and how many sources it cites. Fewer = faster and cheaper.
+          </span>
+        </fieldset>
+
         <div className="btn-row">
           <button type="submit" className="btn btn-primary">
             Save settings
@@ -147,6 +171,8 @@ export default function SettingsPage() {
           {saved && <span className="saved">✓ Saved</span>}
         </div>
       </form>
+
+      <TwoFactorSettings />
     </div>
   );
 }

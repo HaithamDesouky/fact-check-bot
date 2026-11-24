@@ -2,12 +2,10 @@ import type { FactCheckResult, Source } from '../types';
 import { HEADING_ICON, TONE_ICON, truthTone, verdictTone } from './tone';
 import { hostname, isSafeUrl } from './openai';
 
-/** Escape characters that would break Reddit markdown in link text. */
 function escapeLinkText(s: string): string {
   return s.replace(/([[\]\\])/g, '\\$1');
 }
 
-/** Parentheses in URLs end a markdown link early on Reddit, so percent-encode them. */
 function escapeUrl(url: string): string {
   return url.replace(/\(/g, '%28').replace(/\)/g, '%29').replace(/ /g, '%20');
 }
@@ -16,7 +14,6 @@ function escapeHtml(s: string): string {
   return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 }
 
-/** Sources with safe URLs, plus a lookup to resolve a point's sourceIds. */
 function prepare(r: FactCheckResult) {
   const sources = r.sources.filter((s) => isSafeUrl(s.url));
   const byId = new Map(sources.map((s) => [s.id, s]));
@@ -29,7 +26,6 @@ function prepare(r: FactCheckResult) {
   };
 }
 
-/** Reddit markdown — used when the comment box is in "Markdown mode". */
 export function toRedditMarkdown(r: FactCheckResult): string {
   const { sources, refs, truthIcon, pointIcon } = prepare(r);
   const cite = (ids: number[]) =>
@@ -58,7 +54,6 @@ export function toRedditMarkdown(r: FactCheckResult): string {
   return lines.join('\n');
 }
 
-/** Rich HTML — used when pasting into Reddit's default rich-text editor. */
 export function toRedditHtml(r: FactCheckResult): string {
   const { sources, refs, truthIcon, pointIcon } = prepare(r);
   const e = escapeHtml;

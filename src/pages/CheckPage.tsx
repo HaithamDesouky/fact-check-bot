@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useStore } from "../lib/store";
-import { factCheck } from "../lib/openai";
+import { factCheck, type FactCheckStatus } from "../lib/openai";
 import FactCheckCard from "../components/FactCheckCard";
 import type { FactCheckResult } from "../types";
 
@@ -9,7 +9,6 @@ const MAX_CHARS = 8000;
 const MAX_WORDS_KEY = "factcheck.maxWords";
 const DEFAULT_MAX_WORDS = "100";
 const LANGUAGE_KEY = "factcheck.language";
-/** value '' = respond in the same language as the pasted text. */
 const LANGUAGES = [
   { value: "", label: "Same as text" },
   { value: "English", label: "English" },
@@ -24,7 +23,6 @@ const LANGUAGES = [
 const MIN_WORDS = 20;
 const MAX_WORDS = 2000;
 
-/** Parses the max-words input: empty/0 = no limit, otherwise clamped to [MIN_WORDS, MAX_WORDS]. */
 function parseMaxWords(value: string): number {
   const n = parseInt(value, 10);
   if (!value.trim() || Number.isNaN(n) || n <= 0) return 0;
@@ -37,6 +35,7 @@ export default function CheckPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<FactCheckResult | null>(null);
+  const [status, setStatus] = useState<FactCheckStatus | null>(null);
   const [maxWords, setMaxWords] = useState(
     () => localStorage.getItem(MAX_WORDS_KEY) ?? DEFAULT_MAX_WORDS,
   );
@@ -61,12 +60,20 @@ export default function CheckPage() {
     setLoading(true);
     setError(null);
     setResult(null);
+    setStatus(null);
     try {
       const r = await factCheck(input, settings, {
         maxWords: words,
         language,
         signal: ctrl.signal,
+        onStatus: (s) => {
+          if (abortRef.current === ctrl) setStatus(s);
+        },
+        onPartial: (partial) => {
+          if (abortRef.current === ctrl) setResult(partial);
+        },
       });
+      if (abortRef.current !== ctrl) return;
       setResult(r);
       addHistory({
         id: crypto.randomUUID(),
@@ -76,10 +83,14 @@ export default function CheckPage() {
         result: r,
       });
     } catch (e) {
-      if ((e as Error).name !== "AbortError") setError((e as Error).message);
+      if ((e as Error).name !== "AbortError" && abortRef.current === ctrl) {
+        setResult(null);
+        setError((e as Error).message);
+      }
     } finally {
       if (abortRef.current === ctrl) {
         setLoading(false);
+        setStatus(null);
         abortRef.current = null;
       }
     }
@@ -89,6 +100,8 @@ export default function CheckPage() {
     abortRef.current?.abort();
     abortRef.current = null;
     setLoading(false);
+    setStatus(null);
+    setResult(null);
   };
 
   const paste = async () => {
@@ -203,16 +216,18 @@ export default function CheckPage() {
         <div className="card loading">
           <div className="spinner" />
           <span>
-            {settings.webSearch
-              ? "Searching the web and checking claims…"
-              : "Checking claims…"}
+            {status === "writing"
+              ? "Writing the fact check…"
+              : status === "searching"
+                ? "Searching the web for sources…"
+                : "Checking claims…"}
           </span>
         </div>
       )}
 
       {error && <div className="alert alert-error">{error}</div>}
 
-      {result && <FactCheckCard result={result} />}
+      {result && <FactCheckCard result={result} streaming={loading} />}
     </div>
   );
 }

@@ -6,9 +6,10 @@ const HISTORY_KEY = 'factcheck.history';
 
 export const DEFAULT_SETTINGS: Settings = {
   apiKey: '',
-  model: 'gpt-4.1',
+  model: 'gpt-4.1-mini',
   webSearch: true,
   searchDepth: 'low',
+  maxSources: 3,
 };
 
 function load<T>(key: string, fallback: T): T {

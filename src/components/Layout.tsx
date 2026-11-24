@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react';
 import { Link, NavLink, Outlet } from 'react-router-dom';
 import { useStore } from '../lib/store';
+import { useAuth } from '../lib/auth';
 
 export default function Layout() {
   const { history, settings } = useStore();
+  const { session, signOut } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
   const closeMenu = () => setMenuOpen(false);
   const linkClass = ({ isActive }: { isActive: boolean }) => (isActive ? 'nav-link active' : 'nav-link');
@@ -37,7 +39,6 @@ export default function Layout() {
           </Link>
         </div>
 
-        {/* Clicks on any link inside bubble up here and close the mobile menu. */}
         <nav id="main-nav" className={menuOpen ? 'open' : ''} onClick={closeMenu}>
           <NavLink to="/" end className={(s) => `${linkClass(s)} nav-new`}>
             <span>✍️</span> New check
@@ -50,9 +51,22 @@ export default function Layout() {
             <span>⚙️</span> Settings
             {!settings.apiKey && <span className="dot" title="API key missing" />}
           </NavLink>
+          <button type="button" className="nav-link nav-signout" onClick={signOut}>
+            <span>🚪</span> Sign out
+          </button>
         </nav>
 
-        <p className="sidebar-foot muted small">AI fact checks can be wrong. Always review the sources.</p>
+        <div className="sidebar-foot">
+          <div className="account small">
+            <span className="account-email muted" title={session?.user.email}>
+              {session?.user.email}
+            </span>
+            <button type="button" className="link-btn" onClick={signOut}>
+              Sign out
+            </button>
+          </div>
+          <p className="muted small">AI fact checks can be wrong. Always review the sources.</p>
+        </div>
       </aside>
 
       {menuOpen && <div className="nav-backdrop" onClick={closeMenu} />}

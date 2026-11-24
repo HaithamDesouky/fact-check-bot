@@ -34,8 +34,8 @@ export interface Settings {
   apiKey: string;
   model: string;
   webSearch: boolean;
-  /** How much page content each web search feeds the model. Higher = more detail, more tokens. */
   searchDepth: SearchDepth;
+  maxSources: number;
 }
 
 export type SearchDepth = 'low' | 'medium' | 'high';
